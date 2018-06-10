@@ -1,0 +1,1 @@
+# DockerizedSqlServerITest-maven-plugin
