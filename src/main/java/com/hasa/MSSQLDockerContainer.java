@@ -1,16 +1,15 @@
 package com.hasa;
 
+import com.google.common.collect.ImmutableMap;
 import com.spotify.docker.client.DefaultDockerClient;
 import com.spotify.docker.client.DockerClient;
 import com.spotify.docker.client.LogStream;
-import com.spotify.docker.client.messages.ContainerConfig;
-import com.spotify.docker.client.messages.ContainerCreation;
-import com.spotify.docker.client.messages.HostConfig;
+import com.spotify.docker.client.messages.*;
 import org.apache.maven.plugin.MojoExecutionException;
 
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
@@ -20,19 +19,23 @@ import java.util.concurrent.*;
  */
 public class MSSQLDockerContainer
 {
+    private static final String DEFAULT_DB_PORT = "1433/tcp";
     private static DockerClient docker;
     private static ContainerCreation container;
     private static boolean dbStartUpSuccessful = false;
 
-    public static void startDB(String imageName, String containerName, Long memory) throws MojoExecutionException
+    public static void startDB(String imageName, String containerName, String hostPort, Long memory) throws MojoExecutionException
     {
-        try
-        {
+        try {
             docker = DefaultDockerClient.fromEnv().build();
-            final HostConfig hostConfig = HostConfig.builder().memory(memory).build();
-            container = docker.createContainer(ContainerConfig.builder().image(imageName).hostConfig(hostConfig).build(), containerName);
+
+            final HostConfig hostConfig = HostConfig.builder()
+                    .portBindings(ImmutableMap.of(DEFAULT_DB_PORT, Arrays.asList(PortBinding.of("", hostPort)))).memory(memory).build();
+
+            ContainerConfig containerConfig = ContainerConfig.builder().image(imageName).hostConfig(hostConfig).exposedPorts(DEFAULT_DB_PORT).build();
+            container = docker.createContainer(containerConfig, containerName);
             docker.startContainer(container.id());
-            System.out.println(container.id());
+            System.out.println("Container ID : " + container.id());
 
 
             try (PipedInputStream stdout = new PipedInputStream(); PipedInputStream stderr = new PipedInputStream(); PipedOutputStream stdout_pipe = new PipedOutputStream(stdout); PipedOutputStream stderr_pipe = new PipedOutputStream(stderr)) {
@@ -54,23 +57,31 @@ public class MSSQLDockerContainer
                 );
 
                 String line = null;
+                //TODO Also look at the std error for any errors
                 try (Scanner sc = new Scanner(stdout); Scanner sc_stderr = new Scanner(stderr)) {
+                    //TODO Do not wait/look for the end of log messages. Look for a parameterized custom message indicating the sql server startup with a timeout
                     while (!(line = sc.nextLine()).equals("")) {
                         System.out.println(line);
                     }
                 }
                 dbStartUpSuccessful = true;
             }
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e) {
             throw new MojoExecutionException("Error starting integration test DB", e);
-        }
-        finally
-        {
-            if (!dbStartUpSuccessful && docker != null)
-            {
-                docker.close();
+        } finally {
+            if (!dbStartUpSuccessful) {
+                if (docker != null) {
+                    if (container != null) {
+                        try {
+
+                            docker.stopContainer(container.id(), 10);
+                            docker.removeContainer(container.id());
+                        } catch (Exception e) {
+                            System.out.println("Exception thrown when cleanning up the container");
+                        }
+                    }
+                    docker.close();
+                }
                 dbStartUpSuccessful = false;
             }
         }
@@ -78,22 +89,15 @@ public class MSSQLDockerContainer
 
     public static void stopAndRemoveDB() throws MojoExecutionException
     {
-        if (dbStartUpSuccessful)
-        {
-            try
-            {
-                docker.stopContainer(container.id(),10);
+        if (dbStartUpSuccessful) {
+            try {
+                docker.stopContainer(container.id(), 10);
                 docker.removeContainer(container.id());
-            }
-            catch (Exception e)
-            {
+            } catch (Exception e) {
                 throw new MojoExecutionException("Error stopping or removing integration test DB", e);
-            }
-            finally
-            {
+            } finally {
                 docker.close();
             }
         }
     }
-
 }

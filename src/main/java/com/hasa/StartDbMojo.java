@@ -19,13 +19,16 @@ public class StartDbMojo extends AbstractMojo
     @Parameter(defaultValue = "NovaIntDB")
     String containerName;
 
+    @Parameter(defaultValue = "1433")
+    String hostPort;
+
     @Parameter(defaultValue = "3221225472")
     Long memory;
 
-    public void execute() throws MojoExecutionException //TODO Port bindings
+    public void execute() throws MojoExecutionException
     {
         getLog().info("++++++++++++++ Starting SQL Server ++++++++++++++++++++++");
-        MSSQLDockerContainer.startDB(imageName, containerName, memory);
+        MSSQLDockerContainer.startDB(imageName, containerName, hostPort, memory);
         getLog().info("++++++++++++++ SQL Server is up ++++++++++++++++++++++");
     }
 }
